@@ -1,0 +1,26 @@
+[package]
+name = "dungeon_platformer"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[features]
+default = ["native"]
+native = []
+web = ["console_error_panic_hook"]
+
+[dependencies]
+bevy = { version = "0.14", features = ["bevy_audio"] }
+bevy_ecs_ldtk = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+console_error_panic_hook = { version = "0.1.7", optional = true }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

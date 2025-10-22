@@ -1,0 +1,124 @@
+Dungeon Platformer Scaffold – Code Overview
+==========================================
+
+This document captures the relationships between modules and systems introduced so far, explaining how data, state, and behavior flow through the project to produce the running placeholder game.
+
+High-Level Flow
+---------------
+1. `src/main.rs` constructs the Bevy `App`, configures window + asset plumbing for native and WASM builds, and registers `DungeonPlatformerPlugin`.
+2. `src/app.rs` composes the game's domain-specific plugins (levels, player, audio, movement, UI) while defining state and system scheduling.
+3. Supporting modules (`state`, `level`, `player`, `movement`, `audio`, `ui`, `wasm`) each encapsulate a self-contained slice of functionality and communicate through Bevy ECS resources, components, and states.
+
+Module Breakdown
+----------------
+
+`src/main.rs`
+--------------
+- Declares the module layout (`mod app; mod level; ...`) so each file is compiled and accessible.
+- Initializes WASM panic hooks when the `web` feature is active.
+- Builds a fixed-size `Window` (1280×720, resizing disabled) shared across platforms, with conditional canvas binding for browser builds.
+- Sets up Bevy `DefaultPlugins`, tuning the asset path, image sampling, and hot-reload settings per platform.
+- Injects a scene-wide `ClearColor` and installs `DungeonPlatformerPlugin`. From this point, the app's behavior is delegated to domain plugins described below.
+
+`src/app.rs`
+------------
+- Imports plugin modules and state helpers (`GameAudioPlugin`, `LevelPlugin`, `MovementPlugin`, `PlayerPlugin`, `UiPlugin`, `toggle_pause`, `GameSet`, `GameState`).
+- `DungeonPlatformerPlugin` bootstraps runtime game state:
+  * Initializes the `GameState` state machine (`Loading`, `Playing`, `Paused`).
+  * Adds the domain plugins so each registers its systems/resources.
+  * Configures the `Update` schedule: `GameSet::Input`, `GameSet::Movement`, and `GameSet::Effects` run in order, but only while `GameState::Playing` is active. This guarantees deterministic input → motion execution.
+  * Spawns a `Camera2dBundle` once at startup.
+  * Hooks `toggle_pause` into `Update` so pressing `ESC` moves between `Playing` and `Paused`.
+
+`src/state.rs`
+--------------
+- Defines the `GameState` enum used by Bevy's state machine to gate system execution.
+- Declares `GameSet` to categorize systems that should run in a specific order each frame.
+- Provides `toggle_pause`, which listens for the `ESC` key and toggles between `Playing` and `Paused`. The app plugin wires this into `Update`, and the `GameSet` scheduling ensures the pause toggle happens after input systems have run once in a frame.
+
+`src/level.rs`
+--------------
+- Establishes how LDtk content is loaded and monitored.
+- `LevelConfig` exposes configurable data (LDtk project path, initial level identifier, a frame shift applied to compensate for LDtk world offsets, and the tile size used for collision math).
+- `LevelAssets` tracks the current project `Handle`, path, chosen level metadata (identifier + IID), and derived spatial properties (bottom-left origin, size, center) so other systems can align gameplay elements accurately.
+- `LevelRoot` tag identifies the entity spawning the LDtk world so it can be despawned when reloading.
+- `spawn_world` (run on `OnEnter(GameState::Loading)`) clears previous LDtk entities, requests the LDtk project asset from Bevy's `AssetServer`, stores handles/resources, aligns `LevelSelection` with the desired level, and spawns an `LdtkWorldBundle`.
+- `monitor_level_loading` checks the Bevy asset pipeline: when the LDtk project is fully loaded (or fails), the game transitions from `Loading` to `Playing`, capturing level dimensions, bottom-left origin (pre-shift), and its center point for spatial queries.
+- `cache_level_transform` listens for LDtk level entities as they materialize in the world and records their global transform, updating the stored origin/center with the transform provided by the runtime spawn.
+- `sync_level_spatial` consumes the cached center + size to center the 2D camera, derives a zoom factor from the window size to keep the level framed, and propagates the data to dependent systems.
+
+`src/collision.rs`
+-------------------
+- `CollisionPlugin` listens to LDtk `LevelEvent`s and rebuilds a `CollisionMap` resource whenever levels spawn/despawn.
+- `CollisionMap` caches tile size, translated origin (after the frame shift), and a hash-set of solid IntGrid cells (value > 0). If no solids are found it logs a warning because collisions will be bypassed.
+- Collision systems run in `PostUpdate` after level spatial sync so the movement code always consumes fresh world offsets.
+
+`src/player.rs`
+---------------
+- Owns the `PlayerPlugin`, responsible for spawning/despawning the placeholder player avatar.
+- On `OnEnter(GameState::Playing)` it creates:
+  * `Player` tag component to identify the entity.
+  * `SpriteBundle` with a simple colored rectangle for now.
+  * `Velocity`, `MovementState`, `PlayerController`, and `Collider` components, providing data that `movement.rs` manipulates.
+- Spawn logic reads `LevelAssets` to place the player at the active level's center, nudging the spawn upward by one tile (16 px) so the avatar rests on top of the ground when the level loads.
+- On `OnExit(GameState::Playing)` it cleans up the player entity to keep state consistent during transitions (e.g., returning to loading or future menus).
+- The player entity is therefore the bridge connecting spawn logic with movement systems.
+
+`src/movement.rs`
+-----------------
+- Encapsulates kinematic movement data and systems used by any controllable entity (currently just `Player`).
+- `MovementSettings` resource centralizes gravity/terminal velocity. It is mutable for future tuning or external configuration.
+- Components:
+  * `Velocity(Vec2)` – the entity's instantaneous velocity in world units per second.
+  * `PlayerController` – movement configuration values tailored to player behavior (ground vs air acceleration, jump strength).
+  * `MovementState` – runtime flags used to capture ground/air state and jump intents.
+  * `Collider` – half extents for axis-aligned collision checks against tiles.
+- Systems (registered inside `GameSet`s to control order):
+  * `read_player_input` (Input set) samples keyboard state, updates horizontal velocity via `PlayerController`, and sets `wants_jump`.
+  * `apply_kinematics` (Movement set) consumes the intent, applies gravity, performs tilemap collision resolution via the `CollisionMap`, clamps terminal velocity, updates grounded state, and writes back the final transform/velocity.
+- Because `MovementPlugin` restricts the systems to `GameState::Playing`, input/physics are paused safely while loading or paused.
+
+`src/audio.rs`
+--------------
+- `GameAudioPlugin` loads placeholder audio handles on `GameState::Loading`.
+- `AudioHandles` stores optional `Handle<AudioSource>` references for jump, pickup, and ambient loops so future systems can access and play them.
+- Logging reminds developers to populate `assets/audio/` with actual files; silent handles are acceptable until then.
+
+`src/ui.rs`
+-----------
+- `UiPlugin` handles gameplay-overlay UI for the paused state.
+- On `GameState::Paused`, it spawns a full-screen semi-transparent node containing text instructions. The `PauseMenu` component makes clean-up straightforward.
+- On exit from `Paused`, the UI entities are removed so gameplay visuals are unobstructed.
+- Ties into the pause logic defined in `state.rs`.
+
+`src/wasm.rs`
+-------------
+- Provides `set_panic_hook` which installs `console_error_panic_hook`. Only compiled when targeting WASM with the `web` feature to reduce native overhead.
+- `main.rs` conditionally calls this helper, ensuring better debugging in web builds.
+
+Assets & README
+---------------
+- `assets/audio/`, `assets/levels/`, `assets/textures/` directories hold content required by asset loads in the codebase. `.gitkeep` placeholders ensure directories exist until populated.
+- `README.md` documents build instructions, asset expectations, and high-level roadmap items, mirroring the structure summarized above.
+
+Inter-module Relationships
+--------------------------
+- `main.rs` ➜ `app.rs` : Ownership of the Bevy app configuration, plugin composition, and state scheduling.
+- `app.rs`
+  * ➜ `state.rs` for state machine definitions and pause toggling.
+  * ➜ `level.rs` to manage LDtk asset loading and state transitions.
+  * ➜ `player.rs` to spawn entities that other systems operate on.
+  * ➜ `movement.rs` for per-frame input/physics affecting entities with `Velocity` & `MovementState`.
+  * ➜ `audio.rs` for asset preloading (future playback systems will depend on `AudioHandles`).
+  * ➜ `ui.rs` for state-driven overlay UI.
+- `player.rs` and `movement.rs` cooperate via shared components; changing either affects runtime motion.
+- `level.rs` drives game state transitions; once LDtk assets finish loading it signals readiness for `movement.rs` + `player.rs` to operate.
+- `ui.rs` relies on `state.rs` to be toggled. If the pause state changes, the overlay updates accordingly.
+
+Usage Notes
+-----------
+- The current prototype renders a placeholder player sprite, supports lateral movement and jumping, transitions from `Loading` → `Playing`, and resolves collisions against IntGrid-marked solid tiles. Ensure LDtk layers mark walkable surfaces with a non-zero IntGrid value to enable blocking.
+- LDtk integration is scaffolded; providing actual `.ldtk` files will allow the plugin to spawn levels automatically.
+- Audio playback hooks are not yet connected; once content is provided, systems can reference `AudioHandles` to trigger sounds.
+
+This outline should stay synchronized with future code additions. Extend it alongside new systems, plugins, or resources to keep the documentation comprehensive.
