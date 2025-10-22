@@ -41,14 +41,18 @@ pub struct Velocity(pub Vec2);
 pub struct PlayerController {
     pub ground_accel: f32,
     pub air_accel: f32,
+    pub ground_max_speed: f32,
+    pub air_max_speed: f32,
     pub jump_strength: f32,
 }
 
 impl Default for PlayerController {
     fn default() -> Self {
         Self {
-            ground_accel: 650.0,
-            air_accel: 420.0,
+            ground_accel: 3200.0,
+            air_accel: 1800.0,
+            ground_max_speed: 650.0,
+            air_max_speed: 420.0,
             jump_strength: 480.0,
         }
     }
@@ -58,6 +62,7 @@ impl Default for PlayerController {
 pub struct MovementState {
     pub on_ground: bool,
     pub wants_jump: bool,
+    pub axis: f32,
 }
 
 impl Default for MovementState {
@@ -65,6 +70,7 @@ impl Default for MovementState {
         Self {
             on_ground: true,
             wants_jump: false,
+            axis: 0.0,
         }
     }
 }
@@ -86,8 +92,8 @@ fn read_player_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&PlayerController, &mut Velocity, &mut MovementState)>,
 ) {
-    for (controller, mut velocity, mut state) in &mut query {
-        let mut axis = 0.0;
+    for (_controller, mut velocity, mut state) in &mut query {
+        let mut axis: f32 = 0.0;
         if keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft) {
             axis -= 1.0;
         }
@@ -95,16 +101,14 @@ fn read_player_input(
             axis += 1.0;
         }
 
-        let accel = if state.on_ground {
-            controller.ground_accel
-        } else {
-            controller.air_accel
-        };
-
-        velocity.x = axis * accel;
+        state.axis = axis.clamp(-1.0, 1.0);
 
         if keyboard.just_pressed(KeyCode::Space) || keyboard.just_pressed(KeyCode::ArrowUp) {
             state.wants_jump = true;
+        }
+
+        if state.axis.abs() < f32::EPSILON && state.on_ground && velocity.x.abs() < 1.0 {
+            velocity.x = 0.0;
         }
     }
 }
@@ -124,11 +128,7 @@ fn apply_kinematics(
     let dt = time.delta_seconds();
 
     for (mut transform, mut velocity, mut state, controller, collider) in &mut query {
-        if state.wants_jump && state.on_ground {
-            velocity.y = controller.jump_strength;
-            state.on_ground = false;
-        }
-
+        let wants_jump = state.wants_jump;
         state.wants_jump = false;
 
         if !state.on_ground {
@@ -140,6 +140,19 @@ fn apply_kinematics(
             velocity.y = 0.0;
         }
 
+        let (accel_rate, max_speed) = if state.on_ground {
+            (controller.ground_accel, controller.ground_max_speed)
+        } else {
+            (controller.air_accel, controller.air_max_speed)
+        };
+
+        if state.axis.abs() > f32::EPSILON {
+            let target = state.axis * max_speed;
+            velocity.x = move_towards(velocity.x, target, accel_rate * dt);
+        } else {
+            velocity.x = move_towards(velocity.x, 0.0, accel_rate * dt);
+        }
+
         let mut position = transform.translation;
         let half = collider.half_extents;
 
@@ -147,7 +160,14 @@ fn apply_kinematics(
         let vertical_collision =
             resolve_vertical(&mut position, &mut velocity.y, half, dt, &collision_map);
 
-        state.on_ground = vertical_collision.down;
+        let grounded = vertical_collision.down || grounded_check(position, half, &collision_map);
+
+        state.on_ground = grounded;
+
+        if wants_jump && state.on_ground {
+            velocity.y = controller.jump_strength;
+            state.on_ground = false;
+        }
 
         transform.translation = position;
     }
@@ -257,4 +277,37 @@ fn resolve_vertical(
 
     position.y = new_y;
     collision
+}
+
+fn move_towards(current: f32, target: f32, max_delta: f32) -> f32 {
+    let delta = target - current;
+    if delta.abs() <= max_delta {
+        target
+    } else {
+        current + delta.signum() * max_delta
+    }
+}
+
+fn grounded_check(position: Vec3, half: Vec2, map: &CollisionMap) -> bool {
+    let foot = position.y - half.y;
+    let probe = foot - SKIN * 2.0;
+    let tile_height = map.tile_size.y;
+    let tile_width = map.tile_size.x;
+
+    let tile_y = ((probe - map.origin.y) / tile_height).floor() as i32;
+    let left = position.x - half.x + SKIN;
+    let right = position.x + half.x - SKIN;
+    let min_tile_x = ((left - map.origin.x) / tile_width).floor() as i32;
+    let max_tile_x = ((right - map.origin.x) / tile_width).floor() as i32;
+
+    for tx in min_tile_x..=max_tile_x {
+        if map.is_solid(IVec2::new(tx, tile_y)) {
+            let tile_top = map.origin.y + (tile_y + 1) as f32 * tile_height;
+            if foot >= tile_top - SKIN * 4.0 {
+                return true;
+            }
+        }
+    }
+
+    false
 }

@@ -60,7 +60,7 @@ Module Breakdown
   * `Player` tag component to identify the entity.
   * `SpriteBundle` with a simple colored rectangle for now.
   * `Velocity`, `MovementState`, `PlayerController`, and `Collider` components, providing data that `movement.rs` manipulates.
-- Spawn logic reads `LevelAssets` to place the player at the active level's center, nudging the spawn upward by one tile (16 px) so the avatar rests on top of the ground when the level loads.
+- Spawn logic reads `LevelAssets` to place the player at the active level's center, nudging the spawn upward by two tiles (32 px) so the avatar drops naturally onto the ground at runtime.
 - On `OnExit(GameState::Playing)` it cleans up the player entity to keep state consistent during transitions (e.g., returning to loading or future menus).
 - The player entity is therefore the bridge connecting spawn logic with movement systems.
 
@@ -70,12 +70,12 @@ Module Breakdown
 - `MovementSettings` resource centralizes gravity/terminal velocity. It is mutable for future tuning or external configuration.
 - Components:
   * `Velocity(Vec2)` – the entity's instantaneous velocity in world units per second.
-  * `PlayerController` – movement configuration values tailored to player behavior (ground vs air acceleration, jump strength).
+  * `PlayerController` – movement configuration values tailored to player behavior (ground vs air acceleration rates, max horizontal speeds, jump strength).
   * `MovementState` – runtime flags used to capture ground/air state and jump intents.
   * `Collider` – half extents for axis-aligned collision checks against tiles.
 - Systems (registered inside `GameSet`s to control order):
   * `read_player_input` (Input set) samples keyboard state, updates horizontal velocity via `PlayerController`, and sets `wants_jump`.
-  * `apply_kinematics` (Movement set) consumes the intent, applies gravity, performs tilemap collision resolution via the `CollisionMap`, clamps terminal velocity, updates grounded state, and writes back the final transform/velocity.
+  * `apply_kinematics` (Movement set) consumes player intent, applies acceleration with clamped max speed, handles gravity, resolves tile collisions via the `CollisionMap`, updates grounded state, and writes back the final transform/velocity.
 - Because `MovementPlugin` restricts the systems to `GameState::Playing`, input/physics are paused safely while loading or paused.
 
 `src/audio.rs`

@@ -20,7 +20,7 @@ fn spawn_player(mut commands: Commands, level_assets: Res<LevelAssets>) {
     let center = level_assets
         .level_center
         .unwrap_or_else(|| Vec2::new(0.0, 128.0));
-    let spawn_position = (center + Vec2::Y * 16.0).extend(1.0);
+    let spawn_position = (center + Vec2::Y * 32.0).extend(1.0);
 
     commands.spawn((
         Name::new("Player"),
