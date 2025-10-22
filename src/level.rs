@@ -1,3 +1,9 @@
+//! LDtk level orchestration: loads project data, tracks metadata, and aligns the camera.
+//!
+//! All persistent data is stored in Bevy resources (`LevelConfig`, `LevelAssets`). Rust's ownership
+//! system ensures these allocations are freed when the app terminates; during runtime, they are
+//! shared immutably or mutably through the ECS borrow rules.
+
 use bevy::asset::LoadState;
 use bevy::math::IVec2;
 use bevy::prelude::*;
@@ -8,6 +14,7 @@ use bevy_ecs_ldtk::LevelIid;
 
 use crate::state::GameState;
 
+/// Registers LDtk asset plumbing and camera synchronisation systems.
 pub struct LevelPlugin;
 
 impl Plugin for LevelPlugin {
@@ -38,12 +45,16 @@ impl Plugin for LevelPlugin {
     }
 }
 
+/// Runtime-tweakable configuration describing which LDtk project + level to load, how to shift it
+/// in world space, and how large the tiles/camera zoom are. Cloned when other systems need read-only
+/// access; cloning is cheap because it only copies primitive values.
 #[derive(Resource, Clone)]
 pub struct LevelConfig {
     pub project_path: String,
     pub start_level: Option<String>,
     pub frame_shift: Vec2,
     pub tile_size: f32,
+    pub camera_zoom: f32,
 }
 
 impl Default for LevelConfig {
@@ -53,10 +64,13 @@ impl Default for LevelConfig {
             start_level: Some("Level_0".to_owned()),
             frame_shift: Vec2::ZERO,
             tile_size: 16.0,
+            camera_zoom: 0.5,
         }
     }
 }
 
+/// Mirror of the currently loaded level's metadata. Optional fields become `Some` once assets are
+/// available. Other systems (camera/collision) read this without owning the LDtk structures.
 #[derive(Resource, Default)]
 pub struct LevelAssets {
     pub project: Option<Handle<LdtkProject>>,
@@ -68,6 +82,8 @@ pub struct LevelAssets {
     pub level_center: Option<Vec2>,
 }
 
+/// Marker on the LDtk world entity so we can despawn it before loading another level, avoiding
+/// dangling entity graphs.
 #[derive(Component)]
 pub struct LevelRoot;
 
@@ -79,6 +95,8 @@ fn spawn_world(
     mut level_assets: ResMut<LevelAssets>,
     mut selection: ResMut<LevelSelection>,
 ) {
+    // Despawn any previously spawned LDtk world so we don't leak entities or memory. Bevy handles
+    // recursive child destruction when `despawn_recursive` is used.
     for entity in &world {
         commands.entity(entity).despawn_recursive();
     }
@@ -93,6 +111,8 @@ fn spawn_world(
         .map(|label| LevelSelection::Identifier(label.clone()))
         .unwrap_or_else(|| LevelSelection::index(0));
 
+    // Spawn a new LDtk world bundle. The bundle contains the world entity and ensures LDtk systems
+    // load the associated levels. `frame_shift` lets us offset the entire map if desired.
     commands.spawn((
         LevelRoot,
         Name::new("LevelRoot"),
@@ -117,6 +137,7 @@ fn monitor_level_loading(
 
     match asset_server.get_load_state(project_handle.id()) {
         Some(LoadState::Loaded) => {
+            // Once the project JSON + tilesets are loaded we can read metadata to cache sizes.
             if let Some(project) = projects.get(project_handle) {
                 let level_data = config
                     .start_level
@@ -167,6 +188,8 @@ fn cache_level_transform(
     mut level_assets: ResMut<LevelAssets>,
     level_query: Query<(&GlobalTransform, &LevelIid), Added<LevelIid>>,
 ) {
+    // When LDtk instantiates a level entity, capture its world transform so other systems know
+    // where the level origin sits in Bevy coordinates.
     for (transform, iid) in &level_query {
         let matches_current_level = level_assets
             .level_iid
@@ -187,6 +210,7 @@ fn cache_level_transform(
 
 pub fn sync_level_spatial(
     level_assets: Res<LevelAssets>,
+    config: Res<LevelConfig>,
     mut camera_query: Query<(&mut Transform, &mut OrthographicProjection), With<Camera2d>>,
     windows: Query<&Window, With<PrimaryWindow>>,
 ) {
@@ -207,11 +231,13 @@ pub fn sync_level_spatial(
         if window_size.x > 0.0 && window_size.y > 0.0 {
             let width_ratio = size.x / window_size.x;
             let height_ratio = size.y / window_size.y;
-            let desired_scale = width_ratio.max(height_ratio).max(0.0001);
-            projection.scale = desired_scale;
+            let base_scale = width_ratio.max(height_ratio).max(0.0001);
+            projection.scale = (base_scale * config.camera_zoom).max(0.0001);
         }
     }
 
+    // Move the camera to the cached center. Z is left untouched so other systems (e.g., follow
+    // smoothing) can maintain depth. Transform writes are staged by Bevy to avoid data races.
     camera_transform.translation.x = center.x;
     camera_transform.translation.y = center.y;
 }

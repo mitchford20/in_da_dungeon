@@ -1,9 +1,16 @@
+//! Player movement systems: input sampling, kinematic integration, and tile collision resolution.
+//!
+//! The high numeric values used here reflect the world-unit scale (1 unit = 1 LDtk pixel). Because
+//! sprites are small, accelerations and gravity must be large to achieve responsive motion. No
+//! manual memory management is needed—the ECS owns component data.
+
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 
 use crate::collision::CollisionMap;
 use crate::state::{GameSet, GameState};
 
+/// Registers movement-related systems. The plugin itself carries no runtime state.
 pub struct MovementPlugin;
 
 impl Plugin for MovementPlugin {
@@ -19,6 +26,8 @@ impl Plugin for MovementPlugin {
     }
 }
 
+/// Global physics tuning parameters. Stored as a resource so designers can tweak gravity or
+/// terminal velocity at runtime (e.g., via debug UI).
 #[derive(Resource)]
 pub struct MovementSettings {
     pub gravity: f32,
@@ -34,9 +43,13 @@ impl Default for MovementSettings {
     }
 }
 
+/// Velocity component storing horizontal/vertical speeds in world units per second. The `Deref`
+/// derives let systems treat it like a `Vec2` while still enabling component borrowing.
 #[derive(Component, Default, Deref, DerefMut)]
 pub struct Velocity(pub Vec2);
 
+/// Controller tuning specific to the player. Acceleration values are large to hit max speed in a
+/// fraction of a second, keeping movement snappy given the pixel-scale world units.
 #[derive(Component)]
 pub struct PlayerController {
     pub ground_accel: f32,
@@ -49,15 +62,17 @@ pub struct PlayerController {
 impl Default for PlayerController {
     fn default() -> Self {
         Self {
-            ground_accel: 3200.0,
-            air_accel: 1800.0,
-            ground_max_speed: 650.0,
-            air_max_speed: 420.0,
+            ground_accel: 1600.0,
+            air_accel: 1200.0,
+            ground_max_speed: 325.0,
+            air_max_speed: 275.0,
             jump_strength: 480.0,
         }
     }
 }
 
+/// Per-entity movement state flags. `axis` stores the last input direction so the kinematics system
+/// can ramp velocity toward the desired target after the input sampling stage.
 #[derive(Component)]
 pub struct MovementState {
     pub on_ground: bool,
@@ -75,6 +90,8 @@ impl Default for MovementState {
     }
 }
 
+/// Axis-aligned bounding box for collision checks. Only half extents are stored because they make
+/// overlap tests inexpensive.
 #[derive(Component, Copy, Clone)]
 pub struct Collider {
     pub half_extents: Vec2,
@@ -88,6 +105,8 @@ impl Collider {
     }
 }
 
+/// Samples keyboard input and writes intent into the movement state. Using a separate system keeps
+/// input handling deterministic and easy to test.
 fn read_player_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut query: Query<(&PlayerController, &mut Velocity, &mut MovementState)>,
@@ -107,12 +126,16 @@ fn read_player_input(
             state.wants_jump = true;
         }
 
+        // Zero-out tiny residual velocities when grounded for crisp stopping behaviour.
         if state.axis.abs() < f32::EPSILON && state.on_ground && velocity.x.abs() < 1.0 {
             velocity.x = 0.0;
         }
     }
 }
 
+/// Applies physics each frame: acceleration toward target velocity, gravity, collision sweeps, and
+/// jump execution. All calculations mutate `Transform`/`Velocity` in place; Bevy batches those
+/// writes and applies them after the system completes.
 fn apply_kinematics(
     time: Res<Time>,
     settings: Res<MovementSettings>,
@@ -128,6 +151,8 @@ fn apply_kinematics(
     let dt = time.delta_seconds();
 
     for (mut transform, mut velocity, mut state, controller, collider) in &mut query {
+        // Capture jump intent so we can resolve collisions before applying it. This avoids the
+        // classic "press jump on the landing frame" issue where intent would be cleared too early.
         let wants_jump = state.wants_jump;
         state.wants_jump = false;
 
@@ -173,6 +198,7 @@ fn apply_kinematics(
     }
 }
 
+/// Flags describing whether a vertical sweep collided above or below the player.
 struct VerticalCollision {
     down: bool,
     up: bool,
@@ -180,6 +206,9 @@ struct VerticalCollision {
 
 const SKIN: f32 = 0.001;
 
+/// Resolves horizontal position/velocity against the collision map using a swept AABB. The tiny
+/// `SKIN` offset prevents the collider from getting stuck on edges by keeping it a hair away from
+/// solid tiles.
 fn resolve_horizontal(
     position: &mut Vec3,
     velocity: &mut f32,
@@ -228,6 +257,9 @@ fn resolve_horizontal(
     position.x = new_x;
 }
 
+/// Vertical counterpart to `resolve_horizontal`. Returns whether a collision occurred above or
+/// below so grounded state can be updated. All arithmetic is in f32 and only local temporaries are
+/// allocated on the stack.
 fn resolve_vertical(
     position: &mut Vec3,
     velocity: &mut f32,
@@ -279,6 +311,8 @@ fn resolve_vertical(
     collision
 }
 
+/// Moves `current` toward `target` by at most `max_delta`, preserving smooth acceleration and
+/// deceleration curves.
 fn move_towards(current: f32, target: f32, max_delta: f32) -> f32 {
     let delta = target - current;
     if delta.abs() <= max_delta {
@@ -288,6 +322,9 @@ fn move_towards(current: f32, target: f32, max_delta: f32) -> f32 {
     }
 }
 
+/// Secondary grounded check that samples just below the feet. Helps catch situations where the
+/// player barely leaves the ground for a single frame (e.g., sliding down steps) to avoid jump
+/// input loss.
 fn grounded_check(position: Vec3, half: Vec2, map: &CollisionMap) -> bool {
     let foot = position.y - half.y;
     let probe = foot - SKIN * 2.0;
