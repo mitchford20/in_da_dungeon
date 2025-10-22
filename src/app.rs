@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::audio::GameAudioPlugin;
+use crate::camera::{CameraPlugin, FollowCamera};
 use crate::collision::CollisionPlugin;
 use crate::level::LevelPlugin;
 use crate::movement::MovementPlugin;
@@ -17,6 +18,7 @@ impl Plugin for DungeonPlatformerPlugin {
                 LevelPlugin,
                 PlayerPlugin,
                 GameAudioPlugin,
+                CameraPlugin,
                 CollisionPlugin,
                 MovementPlugin,
                 UiPlugin,
@@ -33,5 +35,9 @@ impl Plugin for DungeonPlatformerPlugin {
 }
 
 fn setup_camera(mut commands: Commands) {
-    commands.spawn((Name::new("MainCamera"), Camera2dBundle::default()));
+    commands.spawn((
+        Name::new("MainCamera"),
+        Camera2dBundle::default(),
+        FollowCamera,
+    ));
 }

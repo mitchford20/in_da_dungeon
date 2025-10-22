@@ -27,7 +27,7 @@ Module Breakdown
   * Initializes the `GameState` state machine (`Loading`, `Playing`, `Paused`).
   * Adds the domain plugins so each registers its systems/resources.
   * Configures the `Update` schedule: `GameSet::Input`, `GameSet::Movement`, and `GameSet::Effects` run in order, but only while `GameState::Playing` is active. This guarantees deterministic input → motion execution.
-  * Spawns a `Camera2dBundle` once at startup.
+  * Spawns a `Camera2dBundle` tagged with `FollowCamera` so it can be driven by the camera follow system.
   * Hooks `toggle_pause` into `Update` so pressing `ESC` moves between `Playing` and `Paused`.
 
 `src/state.rs`
@@ -52,6 +52,12 @@ Module Breakdown
 - `CollisionPlugin` listens to LDtk `LevelEvent`s and rebuilds a `CollisionMap` resource whenever levels spawn/despawn.
 - `CollisionMap` caches tile size, translated origin (after the frame shift), and a hash-set of solid IntGrid cells (value > 0). If no solids are found it logs a warning because collisions will be bypassed.
 - Collision systems run in `PostUpdate` after level spatial sync so the movement code always consumes fresh world offsets.
+
+`src/camera.rs`
+---------------
+- `CameraPlugin` runs after movement, keeping the tagged camera smoothly centered on the player.
+- Camera motion is lerped toward the player's position for a soft follow feel and clamped within the level bounds based on `LevelAssets` and the current orthographic zoom/window size.
+- A run condition ensures the system is dormant while the camera or player hasn't been spawned yet.
 
 `src/player.rs`
 ---------------
@@ -117,7 +123,7 @@ Inter-module Relationships
 
 Usage Notes
 -----------
-- The current prototype renders a placeholder player sprite, supports lateral movement and jumping, transitions from `Loading` → `Playing`, and resolves collisions against IntGrid-marked solid tiles. Ensure LDtk layers mark walkable surfaces with a non-zero IntGrid value to enable blocking.
+- The current prototype renders a placeholder player sprite, supports lateral movement and jumping, transitions from `Loading` → `Playing`, resolves collisions against IntGrid-marked solid tiles, and keeps the camera smoothly centered on the hero. Ensure LDtk layers mark walkable surfaces with a non-zero IntGrid value to enable blocking.
 - LDtk integration is scaffolded; providing actual `.ldtk` files will allow the plugin to spawn levels automatically.
 - Audio playback hooks are not yet connected; once content is provided, systems can reference `AudioHandles` to trigger sounds.
 

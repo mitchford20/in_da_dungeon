@@ -16,19 +16,26 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)]
 pub struct Player;
 
-fn spawn_player(mut commands: Commands, level_assets: Res<LevelAssets>) {
+fn spawn_player(
+    mut commands: Commands,
+    level_assets: Res<LevelAssets>,
+    asset_server: Res<AssetServer>,
+) {
     let center = level_assets
         .level_center
         .unwrap_or_else(|| Vec2::new(0.0, 128.0));
     let spawn_position = (center + Vec2::Y * 32.0).extend(1.0);
 
+    let texture = asset_server.load("textures/blob.png");
+    let sprite_size = Vec2::splat(32.0);
+
     commands.spawn((
         Name::new("Player"),
         Player,
         SpriteBundle {
+            texture,
             sprite: Sprite {
-                color: Color::srgb(0.8, 0.7, 0.6),
-                custom_size: Some(Vec2::new(32.0, 48.0)),
+                custom_size: Some(sprite_size),
                 ..default()
             },
             transform: Transform::from_translation(spawn_position),
@@ -37,7 +44,7 @@ fn spawn_player(mut commands: Commands, level_assets: Res<LevelAssets>) {
         Velocity::default(),
         MovementState::default(),
         PlayerController::default(),
-        Collider::from_size(Vec2::new(32.0, 48.0)),
+        Collider::from_size(sprite_size),
     ));
 }
 
