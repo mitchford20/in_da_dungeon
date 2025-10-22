@@ -21,10 +21,12 @@ fn spawn_player(
     level_assets: Res<LevelAssets>,
     asset_server: Res<AssetServer>,
 ) {
-    let center = level_assets
-        .level_center
-        .unwrap_or_else(|| Vec2::new(0.0, 128.0));
-    let spawn_position = (center + Vec2::Y * 32.0).extend(1.0);
+    let default_spawn = Vec2::new(30.0, 60.0);
+    let spawn_2d = level_assets
+        .level_origin
+        .map(|origin| origin + default_spawn)
+        .unwrap_or(default_spawn);
+    let spawn_position = spawn_2d.extend(1.0);
 
     let texture = asset_server.load("textures/blob.png");
     let sprite_size = Vec2::splat(32.0);
