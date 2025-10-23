@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use crate::level::LevelAssets;
 use crate::movement::{Collider, MovementState, PlayerController, Velocity};
 use crate::state::GameState;
+use crate::transition::SpawnPositions;
 
 /// Registers systems that keep exactly one player entity alive while in the `Playing` state.
 pub struct PlayerPlugin;
@@ -34,6 +35,7 @@ fn spawn_player_if_needed(
     mut commands: Commands,
     level_assets: Res<LevelAssets>,
     asset_server: Res<AssetServer>,
+    spawn_positions: Res<SpawnPositions>,
     existing_player: Query<Entity, With<Player>>,
 ) {
     if !existing_player.is_empty() {
@@ -44,9 +46,10 @@ fn spawn_player_if_needed(
         return;
     };
 
-    // Desired spawn offset relative to the LDtk level origin. Adjust this to reposition the spawn.
-    let default_spawn = Vec2::new(340.0, 340.0);
-    let spawn_2d = origin + default_spawn;
+    // Get spawn position based on the current level file
+    let project_path = level_assets.project_path.as_deref().unwrap_or("levels/test_map_1_newres.ldtk");
+    let spawn_offset = spawn_positions.get(project_path);
+    let spawn_2d = origin + spawn_offset;
     // Place the sprite slightly in front of tile layers so it renders above the map.
     let spawn_position = spawn_2d.extend(200.0);
 

@@ -12,6 +12,7 @@ mod level;
 mod movement;
 mod player;
 mod state;
+mod transition;
 mod ui;
 
 #[cfg(all(target_arch = "wasm32", feature = "web"))]

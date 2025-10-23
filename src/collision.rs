@@ -36,6 +36,7 @@ pub struct CollisionMap {
     pub tile_size: Vec2,
     pub origin: Vec2,
     pub solids: HashSet<IVec2>,
+    pub tile_values: std::collections::HashMap<IVec2, i32>,
 }
 
 impl CollisionMap {
@@ -43,11 +44,17 @@ impl CollisionMap {
     /// rebuild, avoiding repeated heap allocations.
     pub fn clear(&mut self) {
         self.solids.clear();
+        self.tile_values.clear();
     }
 
     /// Returns whether the given tile coordinate is flagged as solid.
     pub fn is_solid(&self, tile: IVec2) -> bool {
         self.solids.contains(&tile)
+    }
+
+    /// Returns the IntGrid value at the given tile coordinate, or None if no tile exists.
+    pub fn get_tile_value(&self, tile: IVec2) -> Option<i32> {
+        self.tile_values.get(&tile).copied()
     }
 }
 
@@ -83,14 +90,30 @@ fn rebuild_collision_map(
     map.tile_size = Vec2::splat(config.tile_size);
     map.origin = level_assets.level_origin.unwrap_or(Vec2::ZERO);
     map.solids.clear();
+    map.tile_values.clear();
 
+    let mut value_2_count = 0;
     for (coords, cell, _) in &int_cells {
-        if cell.value <= 0 {
-            continue;
-        }
+        let tile_pos = IVec2::new(coords.x, coords.y);
 
-        map.solids.insert(IVec2::new(coords.x, coords.y));
+        if cell.value > 0 {
+            // Value 1 = solid collision block
+            // Value 2 = non-solid trigger (for level transitions)
+            if cell.value == 1 {
+                map.solids.insert(tile_pos);
+            }
+
+            // Store all non-zero values in the tile_values map
+            map.tile_values.insert(tile_pos, cell.value);
+
+            if cell.value == 2 {
+                value_2_count += 1;
+                info!("Found value 2 tile (trigger) at grid coords: {:?}", tile_pos);
+            }
+        }
     }
+
+    info!("Collision map rebuilt: {} solid tiles, {} trigger tiles", map.solids.len(), value_2_count);
 
     if map.solids.is_empty() {
         warn!(
