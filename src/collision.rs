@@ -1,3 +1,7 @@
+//! Tilemap collision extraction. Converts LDtk IntGrid layers into a hash-set of solid tiles that
+//! the movement system queries. The data lives in a Bevy resource so it can be accessed by any
+//! system without copying large structures.
+
 use std::collections::HashSet;
 
 use bevy::math::IVec2;
@@ -6,6 +10,8 @@ use bevy_ecs_ldtk::prelude::*;
 
 use crate::level::{LevelAssets, LevelConfig};
 
+/// Registers the collision map resource and rebuild system. Bevy keeps plugin state in its ECS
+/// world; no manual allocation or freeing is necessary.
 pub struct CollisionPlugin;
 
 impl Plugin for CollisionPlugin {
@@ -19,9 +25,12 @@ impl Plugin for CollisionPlugin {
     }
 }
 
+/// Marker system set so movement can depend on collision map freshness if required.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CollisionSystems;
 
+/// Runtime collision data. Stores the LDtk tile size, world origin, and a hash-set of solid cell
+/// coordinates. The hash-set grants O(1) `is_solid` queries while remaining compact in memory.
 #[derive(Resource, Default)]
 pub struct CollisionMap {
     pub tile_size: Vec2,
@@ -30,15 +39,21 @@ pub struct CollisionMap {
 }
 
 impl CollisionMap {
+    /// Clears the hash-set. Memory is retained by the `HashSet` allocation for reuse in the next
+    /// rebuild, avoiding repeated heap allocations.
     pub fn clear(&mut self) {
         self.solids.clear();
     }
 
+    /// Returns whether the given tile coordinate is flagged as solid.
     pub fn is_solid(&self, tile: IVec2) -> bool {
         self.solids.contains(&tile)
     }
 }
 
+/// Regenerates the solid tile cache whenever LDtk emits level spawn/despawn events. The ECS query
+/// iterates over freshly spawned `IntGridCell` entities, copying only the coordinates we care about
+/// into the `HashSet`. All intermediate data is stack-allocated and dropped after the system runs.
 fn rebuild_collision_map(
     mut events: EventReader<LevelEvent>,
     int_cells: Query<(&GridCoords, &IntGridCell, &Parent)>,
@@ -51,12 +66,8 @@ fn rebuild_collision_map(
 
     for event in events.read() {
         match event {
-            LevelEvent::Spawned(_) => {
-                needs_rebuild = true;
-            }
-            LevelEvent::Despawned(_) => {
-                should_clear = true;
-            }
+            LevelEvent::Spawned(_) => needs_rebuild = true,
+            LevelEvent::Despawned(_) => should_clear = true,
             _ => {}
         }
     }

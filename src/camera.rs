@@ -1,3 +1,7 @@
+//! Camera follow system. Keeps the main 2D camera centered on the player while respecting
+//! level boundaries. All transformations are managed through Bevy's ECS—no raw pointers or
+//! manual memory management required.
+
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
@@ -5,6 +9,8 @@ use crate::level::LevelAssets;
 use crate::player::Player;
 use crate::state::GameSet;
 
+/// Plugin that registers the camera-follow system. Bevy stores plugins on the heap owned by the
+/// app; once the app exits, resources are dropped automatically.
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
@@ -12,15 +18,18 @@ impl Plugin for CameraPlugin {
         app.add_systems(
             Update,
             follow_player_camera
-                .after(GameSet::Movement)
+                .after(GameSet::Movement) // run after movement so camera sees latest transform
                 .run_if(has_player_and_camera),
         );
     }
 }
 
+/// Marker component so the follow system can locate the camera entity without relying on names.
 #[derive(Component)]
 pub struct FollowCamera;
 
+/// Run condition that only schedules the follow system when both a player and camera exist. This
+/// prevents `get_single` panics during level transitions when entities may be missing.
 fn has_player_and_camera(
     player_query: Query<Entity, With<Player>>,
     camera_query: Query<Entity, With<FollowCamera>>,
@@ -28,6 +37,10 @@ fn has_player_and_camera(
     !player_query.is_empty() && !camera_query.is_empty()
 }
 
+/// Smoothly interpolates the camera transform toward the player's location. The Lerped motion
+/// uses an exponential decay constant (`follow_speed`) to avoid overshooting while keeping the
+/// player centered. Orthographic scale is accounted for when clamping within level bounds so the
+/// camera never shows outside the playable area.
 fn follow_player_camera(
     mut camera_query: Query<(&mut Transform, &mut OrthographicProjection), With<FollowCamera>>,
     player_query: Query<&Transform, (With<Player>, Without<FollowCamera>)>,

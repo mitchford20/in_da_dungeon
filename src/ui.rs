@@ -1,7 +1,13 @@
+//! Pause menu UI. Spawns a simple overlay when the game enters the `Paused` state.
+//!
+//! UI entities are part of Bevy's ECS; once despawned, all associated style/text components are
+//! dropped automatically.
+
 use bevy::prelude::*;
 
 use crate::state::GameState;
 
+/// Registers pause overlay spawn/despawn systems.
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
@@ -14,6 +20,8 @@ impl Plugin for UiPlugin {
 #[derive(Component)]
 struct PauseMenu;
 
+/// Spawns a full-screen UI node with centered text. Nodes live in the `Ui` world and are rendered
+/// by the UI camera automatically.
 fn spawn_pause_menu(mut commands: Commands) {
     commands
         .spawn((
@@ -43,6 +51,7 @@ fn spawn_pause_menu(mut commands: Commands) {
         });
 }
 
+/// Removes the pause menu overlay on state exit.
 fn despawn_pause_menu(mut commands: Commands, query: Query<Entity, With<PauseMenu>>) {
     for entity in &query {
         commands.entity(entity).despawn_recursive();
