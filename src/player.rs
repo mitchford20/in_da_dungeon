@@ -10,13 +10,16 @@ use crate::level::LevelAssets;
 use crate::movement::{Collider, MovementState, PlayerController, Velocity};
 use crate::state::GameState;
 
-/// Registers the systems that create/destroy the player entity when entering or exiting gameplay.
+/// Registers systems that keep exactly one player entity alive while in the `Playing` state.
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(GameState::Playing), spawn_player)
-            .add_systems(OnExit(GameState::Playing), despawn_player);
+        app.add_systems(
+            Update,
+            spawn_player_if_needed.run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(OnExit(GameState::Playing), despawn_player);
     }
 }
 
@@ -25,17 +28,25 @@ impl Plugin for PlayerPlugin {
 #[derive(Component)]
 pub struct Player;
 
-fn spawn_player(
+/// Spawns the player once the LDtk world origin is known. If the world is still loading or a
+/// player already exists, the system exits early.
+fn spawn_player_if_needed(
     mut commands: Commands,
     level_assets: Res<LevelAssets>,
     asset_server: Res<AssetServer>,
+    existing_player: Query<Entity, With<Player>>,
 ) {
+    if !existing_player.is_empty() {
+        return;
+    }
+
+    let Some(origin) = level_assets.level_origin else {
+        return;
+    };
+
     // Desired spawn offset relative to the LDtk level origin. Adjust this to reposition the spawn.
     let default_spawn = Vec2::new(30.0, 60.0);
-    let spawn_2d = level_assets
-        .level_origin
-        .map(|origin| origin + default_spawn)
-        .unwrap_or(default_spawn);
+    let spawn_2d = origin + default_spawn;
     let spawn_position = spawn_2d.extend(1.0);
 
     let texture = asset_server.load("textures/blob.png");
