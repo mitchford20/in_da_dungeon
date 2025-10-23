@@ -29,7 +29,7 @@ impl Plugin for PlayerPlugin {
 pub struct Player;
 
 /// Spawns the player once the LDtk world origin is known. If the world is still loading or a
-/// player already exists, the system exits early.
+/// player already exists, the system exits earl
 fn spawn_player_if_needed(
     mut commands: Commands,
     level_assets: Res<LevelAssets>,
@@ -45,9 +45,10 @@ fn spawn_player_if_needed(
     };
 
     // Desired spawn offset relative to the LDtk level origin. Adjust this to reposition the spawn.
-    let default_spawn = Vec2::new(30.0, 60.0);
+    let default_spawn = Vec2::new(340.0, 340.0);
     let spawn_2d = origin + default_spawn;
-    let spawn_position = spawn_2d.extend(1.0);
+    // Place the sprite slightly in front of tile layers so it renders above the map.
+    let spawn_position = spawn_2d.extend(200.0);
 
     let texture = asset_server.load("textures/blob.png");
     let sprite_size = Vec2::splat(32.0);

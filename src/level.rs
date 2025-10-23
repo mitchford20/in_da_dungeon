@@ -218,7 +218,7 @@ pub fn sync_level_spatial(
         return;
     }
 
-    let (Some(center), Some(size)) = (level_assets.level_center, level_assets.level_size) else {
+    let (Some(center), Some(_size)) = (level_assets.level_center, level_assets.level_size) else {
         return;
     };
 
@@ -227,13 +227,8 @@ pub fn sync_level_spatial(
     };
 
     if let Ok(window) = windows.get_single() {
-        let window_size = window.resolution.size();
-        if window_size.x > 0.0 && window_size.y > 0.0 {
-            let width_ratio = size.x / window_size.x;
-            let height_ratio = size.y / window_size.y;
-            let base_scale = width_ratio.max(height_ratio).max(0.0001);
-            projection.scale = (base_scale * config.camera_zoom).max(0.0001);
-        }
+        let _window_size = window.resolution.size();
+        projection.scale = config.camera_zoom.max(0.0001);
     }
 
     // Move the camera to the cached center. Z is left untouched so other systems (e.g., follow
