@@ -14,6 +14,7 @@ use crate::level::LevelPlugin;
 use crate::movement::MovementPlugin;
 use crate::player::PlayerPlugin;
 use crate::state::{toggle_pause, GameSet, GameState};
+use crate::transition::TransitionPlugin;
 use crate::ui::UiPlugin;
 
 /// Bundles every gameplay-centric plugin into a single unit that can be added
@@ -25,13 +26,14 @@ impl Plugin for DungeonPlatformerPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameState>() // Allocates the state machine in the ECS world.
             .add_plugins((
-                LevelPlugin,     // Level loading + LDtk asset plumbing.
-                PlayerPlugin,    // Player entity spawning logic.
-                GameAudioPlugin, // Audio handle preloading.
-                CameraPlugin,    // Camera follow behaviour.
-                CollisionPlugin, // Tile-based collision map.
-                MovementPlugin,  // Input + kinematic updates.
-                UiPlugin,        // Pause overlay.
+                LevelPlugin,      // Level loading + LDtk asset plumbing.
+                PlayerPlugin,     // Player entity spawning logic.
+                GameAudioPlugin,  // Audio handle preloading.
+                CameraPlugin,     // Camera follow behaviour.
+                CollisionPlugin,  // Tile-based collision map.
+                MovementPlugin,   // Input + kinematic updates.
+                TransitionPlugin, // Level transitions with fade effects.
+                UiPlugin,         // Pause overlay.
             ))
             // Systems inside these sets execute sequentially while the game
             // is in the `Playing` state. `chain()` enforces Input → Movement
